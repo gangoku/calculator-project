@@ -1,15 +1,11 @@
-from fastmcp import FastMCP
+from fastapi import FastAPI
 
-mcp = FastMCP("my-first-mcp")
+app = FastAPI()
 
-@mcp.tool()
-def hello(name: str) -> str:
-    return f"Hello, {name}!"
+@app.get("/hello")
+def hello():
+    return {"message": "Hello World"}
 
-@mcp.tool()
-def add(a: float, b: float) -> float:
-    return a + b
-
-if __name__ == "__main__":
-    # mcp.run(transport="stdio")
-    mcp.run(transport="http", port=8000)
+@app.get("/solve")
+def solve_api(x: int):
+    return {"result": x * 2}
