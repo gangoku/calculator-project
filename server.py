@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
+import uvicorn
+from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 try:
@@ -17,6 +20,7 @@ except ImportError as exc:  # pragma: no cover
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError(
         "MCP SDK is required. Install the MCP Python SDK first."
@@ -246,12 +250,35 @@ repository = ComplianceRepository()
 # -----------------------------------------------------------------------------
 # MCP server
 # -----------------------------------------------------------------------------
+DOMAIN = "calculator-project-ucyb.onrender.com"
+LOCAL_ALLOWED_HOSTS = [
+    "localhost",
+    "localhost:*",
+    "127.0.0.1",
+    "127.0.0.1:*",
+]
+LOCAL_ALLOWED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 
 mcp = FastMCP(
     "compliance-pdf-mcp",
     host=SETTINGS.host,
     port=SETTINGS.port,
-    streamable_http_path="/mcp",
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            *LOCAL_ALLOWED_HOSTS,
+            DOMAIN,
+            f"{DOMAIN}:*",
+        ],
+        allowed_origins=[
+            *LOCAL_ALLOWED_ORIGINS,
+            f"https://{DOMAIN}",
+        ],
+    ),
     json_response=True,
     stateless_http=True,
 )
@@ -316,5 +343,25 @@ def search_compliance_documents(
     return response.model_dump()
 
 
+streamable_http_app = mcp.streamable_http_app()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/health")
+def health() -> dict[str, bool]:
+    return {"ok": True}
+
+
+app.mount("/mcp", streamable_http_app)
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    uvicorn.run(app, host=SETTINGS.host, port=SETTINGS.port)
